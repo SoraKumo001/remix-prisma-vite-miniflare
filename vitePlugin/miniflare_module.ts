@@ -46,9 +46,7 @@ class WorkerdModuleRunner extends ModuleRunner {
           Object.freeze(context[ssrModuleExportsKey]);
         },
         async runExternalModule(filepath) {
-          const result = await import(filepath).catch((e) => {
-            console.error(e);
-          });
+          const result = await import(filepath);
           return { ...result, ...result.default };
         },
       }
@@ -60,10 +58,12 @@ export default {
   async fetch(request: Request, env: RunnerEnv) {
     const runner = new WorkerdModuleRunner(env);
     const entry = request.headers.get("x-vite-entry")!;
-    const mod = await runner.import(entry);
-    const handler = mod.default as ExportedHandler;
-    if (!handler.fetch) throw new Error(`Module does not have a fetch handler`);
     try {
+      const mod = await runner.import(entry);
+      const handler = mod.default as ExportedHandler;
+      if (!handler.fetch)
+        throw new Error(`Module does not have a fetch handler`);
+
       const result = handler.fetch(request, env, {
         waitUntil: () => {},
         passThroughOnException() {},

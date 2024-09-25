@@ -63,8 +63,13 @@ export const unsafeModuleFallbackService = async (
   if (!rawSpecifier.startsWith("./") && rawSpecifier[0] !== "/") {
     if (!fs.existsSync(specifier)) {
       if (method === "import") {
-        specifier = import.meta.resolve(rawSpecifier, referrer);
-        specifier = specifier.substring(8);
+        // specifier = import.meta.resolve(rawSpecifier, referrer);
+        // specifier = specifier.substring(8);
+        const resolve = await vite.environments.ssr.pluginContainer.resolveId(
+          rawSpecifier,
+          referrer
+        );
+        specifier = resolve?.id.replace(/\?v=.+$/, "") ?? "";
       } else {
         specifier = require.resolve(rawSpecifier, { paths: [referrer] });
         specifier = specifier.replaceAll("\\", "/");
@@ -92,24 +97,23 @@ export const unsafeModuleFallbackService = async (
     external: ["*.wasm"],
     bundle: true,
     packages: "external",
-    mainFields: ["module", "browser", "main"],
-    conditions: ["workerd", "worker", "webworker", "import"],
     minify: false,
     write: false,
     logLevel: "error",
     jsxDev: true,
+    banner: {
+      js: `import { createRequire } from "node:module";
+      const ___r = createRequire("/${specifier}");
+      const require = (id) => {
+        const result = ___r(id);
+        return result.default;
+      };`,
+    },
   }).catch((e) => {
     console.error("esbuild error", e);
     return e;
   });
-  const esModule =
-    `import  { createRequire } from "node:module";
-  const ___r = createRequire("/${specifier}");
-  const require = (id) => {
-    const result = ___r(id);
-    return result.default;
-  };` + result.outputFiles?.[0].text;
-
+  const esModule = result.outputFiles?.[0].text;
   return new Response(
     JSON.stringify({
       name: origin?.substring(1),
