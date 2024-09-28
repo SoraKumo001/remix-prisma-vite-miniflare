@@ -1,15 +1,15 @@
+import fs from "fs";
+import path from "path";
 import { fileURLToPath } from "url";
 import { build } from "esbuild";
-import { ViteDevServer } from "vite";
 import {
   Miniflare,
   mergeWorkerOptions,
   MiniflareOptions,
   Response,
 } from "miniflare";
-import path from "path";
+import { ViteDevServer } from "vite";
 import { unstable_getMiniflareWorkerOptions } from "wrangler";
-import fs from "fs";
 import { unsafeModuleFallbackService } from "./unsafeModuleFallbackService";
 
 async function getTransformedCode(modulePath: string) {

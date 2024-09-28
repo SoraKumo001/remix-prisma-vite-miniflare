@@ -1,24 +1,29 @@
 import { once } from "node:events";
 import { Readable } from "node:stream";
 import path from "path";
-import { Connect, Plugin as VitePlugin } from "vite";
-import type { ServerResponse } from "node:http";
-import { createMiniflare } from "./miniflare";
-
 import {
   Response as MiniflareResponse,
   Request as MiniflareRequest,
   RequestInit,
 } from "miniflare";
+import { Connect, Plugin as VitePlugin } from "vite";
+import { createMiniflare } from "./miniflare";
+import type { ServerResponse } from "node:http";
 
 export function devServer(): VitePlugin {
   const plugin: VitePlugin = {
     name: "edge-dev-server",
     configureServer: async (viteDevServer) => {
+      ["miniflare_module.ts", "unsafeModuleFallbackService.ts"].forEach(
+        (file) => {
+          viteDevServer.watcher.add(path.resolve(__dirname, file));
+        }
+      );
       const runner = await createMiniflare(viteDevServer);
       process.on("exit", () => {
         runner.dispose();
       });
+
       return () => {
         if (!viteDevServer.config.server.middlewareMode) {
           viteDevServer.middlewares.use(async (req, nodeRes, next) => {
@@ -37,6 +42,7 @@ export function devServer(): VitePlugin {
         }
       };
     },
+
     apply: "serve",
     config: () => {
       return {

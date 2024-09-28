@@ -1,5 +1,4 @@
 import { createRequestHandler } from "@remix-run/cloudflare";
-// eslint-disable-next-line import/no-unresolved
 import * as build from "virtual:remix/server-build";
 import type { AppLoadContext } from "@remix-run/cloudflare";
 

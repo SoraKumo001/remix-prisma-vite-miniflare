@@ -1,8 +1,8 @@
+import fs from "fs";
+import { createRequire } from "node:module";
 import { build } from "esbuild";
 import { Request, Response } from "miniflare";
 import { ViteDevServer } from "vite";
-import { createRequire } from "node:module";
-import fs from "fs";
 
 const require = createRequire(process.cwd());
 

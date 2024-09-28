@@ -1,8 +1,8 @@
+import { PrismaPg } from "@prisma/adapter-pg-worker";
+import { PrismaClient } from "@prisma/client/wasm";
+import { Pool } from "@prisma/pg-worker";
 import { LoaderFunctionArgs } from "@remix-run/cloudflare";
 import { useLoaderData } from "@remix-run/react";
-import { PrismaPg } from "@prisma/adapter-pg-worker";
-import pg from "@prisma/pg-worker";
-import { PrismaClient } from "@prisma/client/wasm";
 
 export default function Index() {
   const values = useLoaderData<string[]>();
@@ -20,7 +20,7 @@ export async function loader({
 }: LoaderFunctionArgs): Promise<string[]> {
   const url = new URL(context.cloudflare.env.DATABASE_URL);
   const schema = url.searchParams.get("schema") ?? undefined;
-  const pool = new pg.Pool({
+  const pool = new Pool({
     connectionString: context.cloudflare.env.DATABASE_URL,
   });
   const adapter = new PrismaPg(pool, { schema });
