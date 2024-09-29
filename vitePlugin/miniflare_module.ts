@@ -16,6 +16,18 @@ type RunnerEnv = {
   };
 };
 
+class ImportError extends Error {
+  path: string;
+  constructor(path: string) {
+    super(path);
+    this.name = "ImportError";
+    this.path = path;
+  }
+  getPath() {
+    return this.path;
+  }
+}
+
 class WorkerdModuleRunner extends ModuleRunner {
   constructor(env: RunnerEnv) {
     super(
@@ -23,7 +35,7 @@ class WorkerdModuleRunner extends ModuleRunner {
         root: "/",
         sourcemapInterceptor: "prepareStackTrace",
         transport: {
-          fetchModule: async (...args) => {
+          async fetchModule(...args) {
             const response = await env.__viteFetchModule.fetch(
               new Request("https://localhost", {
                 method: "POST",
@@ -36,17 +48,23 @@ class WorkerdModuleRunner extends ModuleRunner {
         hmr: false,
       },
       {
-        runInlinedModule: async (context, transformed, id) => {
+        async runInlinedModule(context, transformed, id) {
           const keys = Object.keys(context);
           const fn = env.__viteUnsafeEval.eval(
             `'use strict';async(${keys.join(",")})=>{${transformed}}`,
             id
           );
-          await fn(...keys.map((key) => context[key as keyof typeof context]));
+          await fn(
+            ...keys.map((key) => context[key as keyof typeof context])
+          ).catch((e) => {
+            throw e;
+          });
           Object.freeze(context[ssrModuleExportsKey]);
         },
         async runExternalModule(filepath) {
-          const result = await import(filepath);
+          const result = await import(filepath).catch((_e) => {
+            throw new ImportError(filepath);
+          });
           return { ...result, ...result.default };
         },
       }
@@ -70,7 +88,17 @@ export default {
       });
       return result;
     } catch (e) {
-      return new Response(String(e), { status: 500 });
+      if (e instanceof ImportError) {
+        return new Response(String(e), {
+          status: 500,
+          headers: {
+            "x-request-bundle": e.getPath(),
+          },
+        });
+      }
+      return new Response(String(e), {
+        status: 500,
+      });
     }
   },
 };

@@ -1,3 +1,4 @@
+import fs from "fs";
 import { once } from "node:events";
 import { Readable } from "node:stream";
 import path from "path";
@@ -10,20 +11,37 @@ import { Connect, Plugin as VitePlugin } from "vite";
 import { createMiniflare } from "./miniflare";
 import type { ServerResponse } from "node:http";
 
+const isWindows = process.platform === "win32";
+
+const getPackageName = (specifier: string): string | null => {
+  const now = process.cwd();
+  let dir = path.dirname(specifier);
+  while (true) {
+    const packageJson = path.join(dir, "package.json");
+    if (fs.existsSync(packageJson)) {
+      const json = JSON.parse(fs.readFileSync(packageJson, "utf-8"));
+      return json.name;
+    }
+    const parentDir = path.dirname(dir);
+    if (parentDir === now) {
+      return null;
+    }
+    dir = parentDir;
+  }
+};
+
 export function devServer(): VitePlugin {
   const plugin: VitePlugin = {
     name: "edge-dev-server",
     configureServer: async (viteDevServer) => {
-      ["miniflare_module.ts", "unsafeModuleFallbackService.ts"].forEach(
-        (file) => {
-          viteDevServer.watcher.add(path.resolve(__dirname, file));
-        }
-      );
       const runner = await createMiniflare(viteDevServer);
       process.on("exit", () => {
         runner.dispose();
       });
-
+      viteDevServer.watcher.on("change", (file) => {
+        if (file === path.resolve(__dirname, "miniflare_module.ts"))
+          viteDevServer.restart();
+      });
       return () => {
         if (!viteDevServer.config.server.middlewareMode) {
           viteDevServer.middlewares.use(async (req, nodeRes, next) => {
@@ -34,7 +52,22 @@ export function devServer(): VitePlugin {
                 path.resolve(__dirname, "server.ts")
               );
               const response = await runner.dispatchFetch(request);
-              await toResponse(response, nodeRes);
+              const requestBundle = response.headers.get("x-request-bundle");
+              if (requestBundle) {
+                let normalPath = requestBundle;
+                if (normalPath.startsWith("file://")) {
+                  normalPath = normalPath.substring(7);
+                }
+                if (isWindows && normalPath[0] === "/") {
+                  normalPath = normalPath.substring(1);
+                }
+                const packageName = getPackageName(normalPath);
+                if (!packageName) {
+                  throw new Error("No package name found");
+                }
+                nodeRes.writeHead(500);
+                nodeRes.end(`Add '${packageName}' to noExternal`);
+              } else toResponse(response, nodeRes);
             } catch (error) {
               next(error);
             }

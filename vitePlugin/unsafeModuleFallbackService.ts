@@ -1,6 +1,5 @@
 import fs from "fs";
 import { createRequire } from "node:module";
-import path from "path";
 import { build } from "esbuild";
 import { Request, Response } from "miniflare";
 import { ViteDevServer } from "vite";
@@ -78,9 +77,8 @@ export const unsafeModuleFallbackService = async (
         );
         specifier = resolve?.id.replace(/\?v=.+$/, "") ?? "";
       } else {
-        const paths = [referrer];
         specifier = require.resolve(rawSpecifier, {
-          paths,
+          paths: [referrer],
         });
         specifier = specifier.replaceAll("\\", "/");
       }
