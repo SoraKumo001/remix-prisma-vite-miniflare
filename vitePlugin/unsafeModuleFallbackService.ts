@@ -1,5 +1,6 @@
 import fs from "fs";
 import { createRequire } from "node:module";
+import path from "path";
 import { build } from "esbuild";
 import { Request, Response } from "miniflare";
 import { ViteDevServer } from "vite";
@@ -14,11 +15,11 @@ const getNormalPath = (target: string | null) => {
   }
   let normalPath = target;
 
-  if (normalPath[0] === "/") {
-    normalPath = normalPath.substring(1);
+  if (normalPath.startsWith("/file:")) {
+    normalPath = normalPath.substring(6);
   }
-  if (normalPath.startsWith("file:")) {
-    normalPath = normalPath.substring(5);
+  if (normalPath.startsWith("file://")) {
+    normalPath = normalPath.substring(7);
   }
   if (isWindows) {
     if (normalPath[0] === "/") {
@@ -40,7 +41,13 @@ export const unsafeModuleFallbackService = async (
   const target = getNormalPath(origin);
   const referrer = getNormalPath(url.searchParams.get("referrer"));
   const rawSpecifier = getNormalPath(url.searchParams.get("rawSpecifier"));
-  // console.log("===============\n", { method, target, referrer, rawSpecifier });
+  // console.log("===============\n", {
+  //   method,
+  //   origin,
+  //   target,
+  //   referrer,
+  //   rawSpecifier,
+  // });
 
   let specifier = target!;
   if (isWindows) {
@@ -71,7 +78,10 @@ export const unsafeModuleFallbackService = async (
         );
         specifier = resolve?.id.replace(/\?v=.+$/, "") ?? "";
       } else {
-        specifier = require.resolve(rawSpecifier, { paths: [referrer] });
+        const paths = [referrer];
+        specifier = require.resolve(rawSpecifier, {
+          paths,
+        });
         specifier = specifier.replaceAll("\\", "/");
       }
 
@@ -103,7 +113,7 @@ export const unsafeModuleFallbackService = async (
     jsxDev: true,
     banner: {
       js: `import { createRequire } from "node:module";
-      const ___r = createRequire("/${specifier}");
+      const ___r = createRequire("file:${specifier}");
       const require = (id) => {
         const result = ___r(id);
         return result.default;
