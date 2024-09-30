@@ -30,10 +30,19 @@ const getPackageName = (specifier: string): string | null => {
   }
 };
 
-export function devServer(): VitePlugin {
+const globals = globalThis as typeof globalThis & {
+  __noExternalModules: Set<string>;
+};
+
+if (!globals.__noExternalModules)
+  globals.__noExternalModules = new Set<string>();
+
+export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
+  const { autoNoExternal } = params || {};
   const plugin: VitePlugin = {
     name: "edge-dev-server",
     configureServer: async (viteDevServer) => {
+      if (!viteDevServer.config.server.preTransformRequests) return undefined;
       const runner = await createMiniflare(viteDevServer);
       process.on("exit", () => {
         runner.dispose();
@@ -43,44 +52,47 @@ export function devServer(): VitePlugin {
           viteDevServer.restart();
       });
       return () => {
-        if (!viteDevServer.config.server.middlewareMode) {
-          viteDevServer.middlewares.use(async (req, nodeRes, next) => {
-            try {
-              const request = toRequest(req);
-              request.headers.set(
-                "x-vite-entry",
-                path.resolve(__dirname, "server.ts")
-              );
-              const response = await runner.dispatchFetch(request);
-              const requestBundle = response.headers.get("x-request-bundle");
-              if (requestBundle) {
-                let normalPath = requestBundle;
-                if (normalPath.startsWith("file://")) {
-                  normalPath = normalPath.substring(7);
-                }
-                if (isWindows && normalPath[0] === "/") {
-                  normalPath = normalPath.substring(1);
-                }
-                const packageName = getPackageName(normalPath);
-                if (!packageName) {
-                  throw new Error("No package name found");
-                }
-                nodeRes.writeHead(500);
-                nodeRes.end(`Add '${packageName}' to noExternal`);
-              } else toResponse(response, nodeRes);
-            } catch (error) {
-              next(error);
-            }
-          });
-        }
+        viteDevServer.middlewares.use(async (req, res, next) => {
+          try {
+            const request = toRequest(req);
+            request.headers.set(
+              "x-vite-entry",
+              path.resolve(__dirname, "server.ts")
+            );
+            const response = await runner.dispatchFetch(request);
+            const requestBundle = response.headers.get("x-request-bundle");
+            if (requestBundle) {
+              let normalPath = requestBundle;
+              if (normalPath.startsWith("file://")) {
+                normalPath = normalPath.substring(7);
+              }
+              if (isWindows && normalPath[0] === "/") {
+                normalPath = normalPath.substring(1);
+              }
+              const packageName = getPackageName(normalPath);
+              if (!packageName) {
+                throw new Error("No package name found");
+              }
+              if (autoNoExternal) {
+                globals.__noExternalModules.add(packageName);
+                console.info(`Add module ${packageName}`);
+                await viteDevServer.restart();
+                return;
+              }
+              res.writeHead(500);
+              res.end(`Add '${packageName}' to noExternal`);
+            } else toResponse(response, res);
+          } catch (error) {
+            next(error);
+          }
+        });
       };
     },
-
-    apply: "serve",
     config: () => {
       return {
         ssr: {
           target: "webworker",
+          noExternal: Array.from(globals.__noExternalModules),
         },
       };
     },

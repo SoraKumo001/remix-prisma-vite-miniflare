@@ -19,6 +19,7 @@ async function getTransformedCode(modulePath: string) {
     format: "esm",
     minify: true,
     write: false,
+    outdir: "node_modules/.vite",
   });
   return result.outputFiles[0].text;
 }

@@ -8,11 +8,11 @@ import { devServer } from "./vitePlugin";
 
 export default defineConfig({
   ssr: {
-    noExternal: ["@prisma/adapter-pg-worker", "@prisma/driver-adapter-utils"],
+    // noExternal: ["@prisma/adapter-pg-worker", "@prisma/driver-adapter-utils"],
   },
   plugins: [
     // remixCloudflareDevProxy(),
-    devServer(),
+    devServer({ autoNoExternal: true }),
     remix({
       future: {
         v3_fetcherPersist: true,
