@@ -17,7 +17,7 @@ async function getTransformedCode(modulePath: string) {
     entryPoints: [modulePath],
     bundle: true,
     format: "esm",
-    minify: true,
+    minify: false,
     write: false,
     outdir: "node_modules/.vite",
   });

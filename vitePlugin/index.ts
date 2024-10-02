@@ -20,7 +20,7 @@ const getPackageName = (specifier: string): string | null => {
     const packageJson = path.join(dir, "package.json");
     if (fs.existsSync(packageJson)) {
       const json = JSON.parse(fs.readFileSync(packageJson, "utf-8"));
-      return json.name;
+      if (json.name) return json.name;
     }
     const parentDir = path.dirname(dir);
     if (parentDir === now) {
@@ -41,6 +41,7 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
   const { autoNoExternal } = params || {};
   const plugin: VitePlugin = {
     name: "edge-dev-server",
+    apply: "serve",
     configureServer: async (viteDevServer) => {
       if (!viteDevServer.config.server.preTransformRequests) return undefined;
       const runner = await createMiniflare(viteDevServer);
@@ -59,9 +60,15 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
               "x-vite-entry",
               path.resolve(__dirname, "server.ts")
             );
-            const response = await runner.dispatchFetch(request);
-            const requestBundle = response.headers.get("x-request-bundle");
-            if (requestBundle) {
+            let response: MiniflareResponse;
+            while (true) {
+              response = await runner.dispatchFetch(request.clone());
+
+              const requestBundle = response.headers.get("x-request-bundle");
+              if (!requestBundle) break;
+              if (!autoNoExternal) {
+                console.error(`Add '${requestBundle}' to noExternal`);
+              }
               let normalPath = requestBundle;
               if (normalPath.startsWith("file://")) {
                 normalPath = normalPath.substring(7);
@@ -71,17 +78,14 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
               }
               const packageName = getPackageName(normalPath);
               if (!packageName) {
-                throw new Error("No package name found");
+                throw new Error(`'${normalPath}' Not found`);
               }
-              if (autoNoExternal) {
-                globals.__noExternalModules.add(packageName);
-                console.info(`Add module ${packageName}`);
-                await viteDevServer.restart();
-                return;
-              }
-              res.writeHead(500);
-              res.end(`Add '${packageName}' to noExternal`);
-            } else toResponse(response, res);
+
+              globals.__noExternalModules.add(packageName);
+              console.info(`Add module ${packageName}`);
+              await viteDevServer.restart();
+            }
+            toResponse(response, res);
           } catch (error) {
             next(error);
           }
@@ -92,7 +96,16 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
       return {
         ssr: {
           target: "webworker",
+          resolve: {
+            conditions: ["worker", "workerd", "browser"],
+          },
+          // optimizeDeps: {
+          //   include: Array.from(globals.__noExternalModules),
+          // },
           noExternal: Array.from(globals.__noExternalModules),
+        },
+        resolve: {
+          mainFields: ["browser", "module", "main"],
         },
       };
     },

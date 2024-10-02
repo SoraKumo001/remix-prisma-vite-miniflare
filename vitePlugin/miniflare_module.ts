@@ -57,6 +57,10 @@ class WorkerdModuleRunner extends ModuleRunner {
           await fn(
             ...keys.map((key) => context[key as keyof typeof context])
           ).catch((e) => {
+            if (e instanceof ImportError) throw e;
+            if (e instanceof Error && "stack" in e) {
+              throw String(e.stack);
+            }
             throw e;
           });
           Object.freeze(context[ssrModuleExportsKey]);
