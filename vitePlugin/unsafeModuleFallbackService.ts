@@ -1,8 +1,12 @@
 import fs from "fs";
 import { createRequire } from "node:module";
+import { initSync, parse } from "cjs-module-lexer";
 import { build } from "esbuild";
 import { Request, Response } from "miniflare";
 import { ViteDevServer } from "vite";
+import { getPackageValue } from "./utils";
+
+initSync();
 
 const require = createRequire(process.cwd());
 
@@ -97,10 +101,60 @@ export const unsafeModuleFallbackService = async (
     );
   }
 
+  const type = getPackageValue(specifier, "type", false);
+
+  const js = `import { createRequire } from "node:module";
+      const ___r = createRequire("file:${specifier}");
+      const require = (id) => {
+        const result = ___r(id);
+        return result.default;
+      };`;
+
+  if (type !== "module") {
+    const result = await build({
+      entryPoints: [specifier],
+      format: "cjs",
+      platform: "browser",
+      external: ["*.wasm"],
+      bundle: true,
+      packages: "external",
+      minify: true,
+      write: false,
+      logLevel: "error",
+      jsxDev: true,
+    }).catch((e) => {
+      console.error("esbuild error", e);
+      return e;
+    });
+    const commonJsModule = result.outputFiles?.[0].text;
+
+    const { exports } = parse(commonJsModule, specifier);
+    if (exports.length) {
+      const exportModules = exports
+        .filter((v) => !["default", "__esModule"].includes(v))
+        .map(
+          (name) =>
+            `export const ${name} = exports.${name} ?? module.exports.${name};\n`
+        )
+        .join("");
+      const esModule =
+        js +
+        "\nvar exports = {};var module = {exports:{}}\n" +
+        commonJsModule +
+        exportModules +
+        "export default exports;\n";
+      return new Response(
+        JSON.stringify({
+          name: origin?.substring(1),
+          esModule,
+        })
+      );
+    }
+  }
+
   const result = await build({
     entryPoints: [specifier],
     format: "esm",
-    target: "esnext",
     platform: "browser",
     external: ["*.wasm"],
     bundle: true,
@@ -110,12 +164,7 @@ export const unsafeModuleFallbackService = async (
     logLevel: "error",
     jsxDev: true,
     banner: {
-      js: `import { createRequire } from "node:module";
-      const ___r = createRequire("file:${specifier}");
-      const require = (id) => {
-        const result = ___r(id);
-        return result.default;
-      };`,
+      js,
     },
   }).catch((e) => {
     console.error("esbuild error", e);

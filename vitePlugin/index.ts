@@ -9,26 +9,10 @@ import {
 } from "miniflare";
 import { Connect, Plugin as VitePlugin } from "vite";
 import { createMiniflare } from "./miniflare";
+import { getPackageValue } from "./utils";
 import type { ServerResponse } from "node:http";
 
 const isWindows = process.platform === "win32";
-
-const getPackageName = (specifier: string): string | null => {
-  const now = process.cwd();
-  let dir = path.dirname(specifier);
-  while (true) {
-    const packageJson = path.join(dir, "package.json");
-    if (fs.existsSync(packageJson)) {
-      const json = JSON.parse(fs.readFileSync(packageJson, "utf-8"));
-      if (json.name) return json.name;
-    }
-    const parentDir = path.dirname(dir);
-    if (parentDir === now) {
-      return null;
-    }
-    dir = parentDir;
-  }
-};
 
 const globals = globalThis as typeof globalThis & {
   __noExternalModules: Set<string>;
@@ -66,9 +50,6 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
 
               const requestBundle = response.headers.get("x-request-bundle");
               if (!requestBundle) break;
-              if (!autoNoExternal) {
-                console.error(`Add '${requestBundle}' to noExternal`);
-              }
               let normalPath = requestBundle;
               if (normalPath.startsWith("file://")) {
                 normalPath = normalPath.substring(7);
@@ -76,11 +57,13 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
               if (isWindows && normalPath[0] === "/") {
                 normalPath = normalPath.substring(1);
               }
-              const packageName = getPackageName(normalPath);
+              const packageName = getPackageValue(normalPath, "name");
               if (!packageName) {
                 throw new Error(`'${normalPath}' Not found`);
               }
-
+              if (!autoNoExternal) {
+                throw new Error(`Add '${packageName}' to noExternal`);
+              }
               globals.__noExternalModules.add(packageName);
               console.info(`Add module ${packageName}`);
               await viteDevServer.restart();
@@ -151,7 +134,7 @@ export async function toResponse(
 ) {
   nodeRes.statusCode = res.status;
   nodeRes.statusMessage = res.statusText;
-  nodeRes.writeHead(res.status, Object.entries(res.headers.entries()));
+  nodeRes.writeHead(res.status, Object.fromEntries(res.headers.entries()));
   if (res.body) {
     const readable = Readable.from(
       res.body as unknown as AsyncIterable<Uint8Array>
