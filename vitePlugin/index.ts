@@ -1,4 +1,3 @@
-import fs from "fs";
 import { once } from "node:events";
 import { Readable } from "node:stream";
 import path from "path";
@@ -6,6 +5,7 @@ import {
   Response as MiniflareResponse,
   Request as MiniflareRequest,
   RequestInit,
+  Miniflare,
 } from "miniflare";
 import { Connect, Plugin as VitePlugin } from "vite";
 import { createMiniflare } from "./miniflare";
@@ -16,6 +16,7 @@ const isWindows = process.platform === "win32";
 
 const globals = globalThis as typeof globalThis & {
   __noExternalModules: Set<string>;
+  __runner?: Miniflare;
 };
 
 if (!globals.__noExternalModules)
@@ -28,14 +29,20 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
     apply: "serve",
     configureServer: async (viteDevServer) => {
       if (!viteDevServer.config.server.preTransformRequests) return undefined;
-      const runner = await createMiniflare(viteDevServer);
+      const runner = globals.__runner ?? (await createMiniflare(viteDevServer));
+      globals.__runner = runner;
       process.on("exit", () => {
         runner.dispose();
       });
+
       viteDevServer.watcher.on("change", (file) => {
-        if (file === path.resolve(__dirname, "miniflare_module.ts"))
+        if (file === path.resolve(__dirname, "miniflare_module.ts")) {
+          runner.dispose();
+          globals.__runner = undefined;
           viteDevServer.restart();
+        }
       });
+      const worker = await runner.getWorker();
       return () => {
         viteDevServer.middlewares.use(async (req, res, next) => {
           try {
@@ -46,8 +53,7 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
             );
             let response: MiniflareResponse;
             while (true) {
-              response = await runner.dispatchFetch(request.clone());
-
+              response = await worker.fetch(request.clone());
               const requestBundle = response.headers.get("x-request-bundle");
               if (!requestBundle) break;
               let normalPath = requestBundle;
@@ -66,6 +72,7 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
               }
               globals.__noExternalModules.add(packageName);
               console.info(`Add module ${packageName}`);
+              console.info(Array.from(globals.__noExternalModules));
               await viteDevServer.restart();
             }
             toResponse(response, res);
@@ -82,9 +89,6 @@ export function devServer(params?: { autoNoExternal?: boolean }): VitePlugin {
           resolve: {
             conditions: ["worker", "workerd", "browser"],
           },
-          // optimizeDeps: {
-          //   include: Array.from(globals.__noExternalModules),
-          // },
           noExternal: Array.from(globals.__noExternalModules),
         },
         resolve: {

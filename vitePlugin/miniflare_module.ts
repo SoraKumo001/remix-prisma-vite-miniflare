@@ -30,25 +30,35 @@ class ImportError extends Error {
 
 class WorkerdModuleRunner extends ModuleRunner {
   constructor(env: RunnerEnv) {
+    const modules: Record<string, unknown> = {};
+    const fetchCache: Record<string, FetchResult> = {};
     super(
       {
         root: "/",
         sourcemapInterceptor: "prepareStackTrace",
         transport: {
           async fetchModule(...args) {
-            const response = await env.__viteFetchModule.fetch(
-              new Request("https://localhost", {
-                method: "POST",
-                body: JSON.stringify(args),
-              })
-            );
-            return response.json<FetchResult>();
+            const cache = args[2]?.cached ? fetchCache[args[0]] : undefined;
+            const response =
+              cache ??
+              ((await env.__viteFetchModule
+                .fetch(
+                  new Request("http://localhost", {
+                    method: "POST",
+                    body: JSON.stringify(args),
+                  })
+                )
+                .then((v) => v.json())) as FetchResult);
+            if (args[2]?.cached) {
+              fetchCache[args[0]] = response;
+            }
+
+            return response;
           },
         },
-        hmr: false,
       },
       {
-        async runInlinedModule(context, transformed, id) {
+        async runInlinedModule(context, transformed, { id }) {
           const keys = Object.keys(context);
           const fn = env.__viteUnsafeEval.eval(
             `'use strict';async(${keys.join(",")})=>{${transformed}}`,
@@ -66,10 +76,14 @@ class WorkerdModuleRunner extends ModuleRunner {
           Object.freeze(context[ssrModuleExportsKey]);
         },
         async runExternalModule(filepath) {
-          const result = await import(filepath).catch((_e) => {
-            throw new ImportError(filepath);
-          });
-          return { ...result, ...result.default };
+          const result =
+            modules[filepath] ??
+            (await import(filepath).catch((_e) => {
+              throw new ImportError(filepath);
+            }));
+          modules[filepath] = result;
+          if (result.default) return { ...result, ...result.default };
+          return result;
         },
       }
     );
