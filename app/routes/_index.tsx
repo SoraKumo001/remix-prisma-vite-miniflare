@@ -26,5 +26,5 @@ export async function loader({
   const adapter = new PrismaPg(pool, { schema });
   const prisma = new PrismaClient({ adapter });
   await prisma.test.create({ data: {} });
-  return prisma.test.findMany().then((r) => r.map(({ id }) => id));
+  return prisma.test.findMany({ where: {} }).then((r) => r.map(({ id }) => id));
 }
